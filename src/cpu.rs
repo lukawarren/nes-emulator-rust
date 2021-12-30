@@ -40,7 +40,7 @@ pub struct Operand
     additional_cycle: bool
 }
 
-impl Cpu // TODO: use read_x!() and write_x!() macros to clean up arguments
+impl Cpu
 {
     pub fn from_memory(ppu: &mut Ppu, memory: &mut Memory) -> Self
     {
@@ -180,8 +180,13 @@ impl Cpu // TODO: use read_x!() and write_x!() macros to clean up arguments
 
                 // Emulate bug
                 let lower_byte = memory.read_byte(ppu, original_address, debugger) as u16;
-                if original_address & 0xff == 0xff { actual_address = ((memory.read_byte(ppu, original_address & 0xff00, debugger) as u16) << 8) | lower_byte; }
-                else { actual_address = ((memory.read_byte(ppu, original_address + 1, debugger) as u16) << 8) | lower_byte; }
+
+                if original_address & 0xff == 0xff {
+                    actual_address = ((memory.read_byte(ppu, original_address & 0xff00, debugger) as u16) << 8) | lower_byte;
+                }
+                else {
+                    actual_address = ((memory.read_byte(ppu, original_address + 1, debugger) as u16) << 8) | lower_byte;
+                }
 
                 Operand { data: actual_address, additional_cycle: false }
             }

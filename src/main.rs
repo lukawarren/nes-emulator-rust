@@ -4,8 +4,6 @@ mod opcodes;
 mod ppu;
 mod palette_table;
 
-use std::ops::RangeInclusive;
-use imgui::{Condition, im_str, Image, StyleVar, TextureId, Window};
 use cpu::Cpu;
 use memory::Memory;
 use ppu::Ppu;
@@ -16,9 +14,15 @@ use ppu::PATTERN_TABLE_SIZE;
 use opcodes::INSTRUCTIONS;
 use opcodes::Instruction;
 
-use sdl2::event::Event;
+use imgui::{Condition, im_str, Image, StyleVar, TextureId, Window, Context};
+use imgui_sdl2::ImguiSdl2;
 use sdl2::keyboard::{Keycode, Scancode};
+use sdl2::event::Event;
+
 use std::os::raw::c_void;
+use std::ops::RangeInclusive;
+use imgui_opengl_renderer::Renderer;
+use sdl2::EventPump;
 
 const WINDOW_WIDTH: u32 = 961;
 const WINDOW_HEIGHT: u32 = 684;
@@ -115,159 +119,27 @@ fn main()
         // Perform emulation
         on_emulation_cycle(&mut cpu, &mut ppu, &mut memory);
 
-        // Prepare ImGui
-        imgui_sdl2.prepare_frame(imgui.io_mut(), &window, &event_pump.mouse_state());
+        // Draw ImGUI stuff
+        draw_gui
+        (
+            // Emulation
+            &mut cpu,
+            &mut ppu,
+            &mut memory,
 
-        // Clear screen and update textures
-        unsafe
-        {
-            gl::ClearColor(0.0, 0.0, 0.0, 1.0);
-            gl::Clear(gl::COLOR_BUFFER_BIT);
+            // Input and output
+            output_texture,
+            &pattern_table_textures,
+            &mut palette,
 
-            gl::BindTexture(gl::TEXTURE_2D, output_texture);
-            gl::TexSubImage2D(gl::TEXTURE_2D, 0, 0, 0, SCREEN_WIDTH as i32, SCREEN_HEIGHT as i32, gl::RGB, gl::UNSIGNED_BYTE, ppu.output.as_ptr() as *const c_void);
+            // Rendering
+            &mut imgui,
+            &mut imgui_sdl2,
+            &renderer,
+            &window,
+            &mut event_pump
+        );
 
-            for i in 0..pattern_table_textures.len()
-            {
-                gl::BindTexture(gl::TEXTURE_2D, pattern_table_textures[i]);
-                gl::TexSubImage2D(gl::TEXTURE_2D, 0, 0, 0, PATTERN_TABLE_SIZE as i32, PATTERN_TABLE_SIZE as i32, gl::RGB, gl::UNSIGNED_BYTE, ppu.get_pattern_table(&mut memory, i as u8, palette).as_ptr() as *const c_void);
-            }
-        }
-
-        // Begin ImGui
-        let ui = imgui.frame();
-        let border_size = 1.0;
-        let border = ui.push_style_var(StyleVar::WindowBorderSize(border_size));
-        let margin = 5.0;
-        let bar_height = 18.0;
-
-        // Output window
-        let padding = ui.push_style_var(StyleVar::WindowPadding([0.0, 0.0]));
-        let output_x = margin;
-        let output_y = margin;
-        let output_width = (SCREEN_WIDTH*SCREEN_SCALE) as f32;
-        let output_height = (SCREEN_HEIGHT*SCREEN_SCALE) as f32;
-
-        Window::new(im_str!("Output"))
-            .position([output_x, output_y], Condition::Always)
-            .resizable(false)
-            .build(&ui, || {
-                Image::new(TextureId::from(output_texture as usize), [output_width, output_height]).build(&ui);
-            });
-
-        padding.pop(&ui);
-
-        // Registers
-        let cpu_section_width = 700;
-        let registers_x = output_x + output_width + border_size + margin - 1.0;
-        let registers_width = cpu_section_width as f32 - registers_x - margin;
-        let registers_height = 140.0;
-
-        Window::new(im_str!("Registers"))
-            .position([registers_x, output_y], Condition::Always)
-            .size([registers_width, registers_height], Condition::Always)
-            .resizable(false)
-            .build(&ui, || {
-                ui.text(format!("Flags: {:#04b}", cpu.flags.bits()));
-                ui.text(format!("PC: {:#06x}", cpu.pc));
-                ui.text(format!("SP: {:#04x}", cpu.sp));
-                ui.text(format!("A: {:#04x}", cpu.a));
-                ui.text(format!("X: {:#04x}", cpu.x));
-                ui.text(format!("Y: {:#04x}", cpu.y));
-            });
-
-        // Stack
-        Window::new(im_str!("Stack"))
-            .position([output_x, output_y + bar_height + output_height + border_size + margin], Condition::Always)
-            .size([output_width + margin + registers_width, 170.0], Condition::Always)
-            .resizable(false)
-            .build(&ui, || {
-
-                // 256 bytes in the stack, 16x16 --> 32x8
-                let rows: u16 = 8;
-                for row in 0..rows
-                {
-                    let mut bytes = [0u8; 32];
-
-                    for i in 0..bytes.len()
-                    {
-                        bytes[i] = memory.read_byte(&mut ppu, row * rows as u16 + i as u16, true);
-                    }
-
-                    ui.text_colored([0.3, 0.3, 0.3, 1.0], format!(
-                        "{:#04x} {:#04x} {:#04x} {:#04x} {:#04x} {:#04x} {:#04x} {:#04x} {:#04x} {:#04x} {:#04x} {:#04x} {:#04x} {:#04x} {:#04x} {:#04x} {:#04x}",
-                        bytes[0], bytes[1], bytes[2], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15])
-                    );
-                }
-            });
-
-        // Disassembly
-        Window::new(im_str!("Disassembly"))
-            .position([registers_x, output_y + registers_height + margin], Condition::Always)
-            .size([registers_width, output_height + bar_height - registers_height - margin + border_size], Condition::Always)
-            .resizable(false)
-            .build(&ui, || {
-
-                let old_pc = cpu.pc;
-
-                for row in 0..32u16
-                {
-                    // The bellow code with affect the program counter *on purpose*
-                    let current_pc = cpu.pc;
-
-                    // Fetch opcode
-                    let opcode = memory.read_byte(&mut ppu, cpu.pc, true);
-                    let Instruction(name, _, addressing_mode, _) = &INSTRUCTIONS[opcode as usize];
-                    cpu.pc += 1;
-
-                    // Fetch operand
-                    let operand = cpu.fetch_operand(&mut ppu, &mut memory, addressing_mode, true);
-
-                    // Display
-                    let colour = if row == 0 { [1.0, 1.0, 1.0, 1.0] } else { [0.3, 0.3, 0.3, 1.0] };
-                    ui.text_colored(colour, format!("{:#06x} {} {:#06x}", current_pc, name, operand.data))
-                }
-
-                cpu.pc = old_pc;
-            });
-
-        // Pattern tables
-        let pattern_table_padding = ui.push_style_var(StyleVar::WindowPadding([0.0, 0.0]));
-        let pattern_table_size = (PATTERN_TABLE_SIZE * SCREEN_SCALE) as f32;
-        let pattern_table_x = cpu_section_width as f32;
-
-        Window::new(im_str!("Pattern table zero"))
-            .position([pattern_table_x, output_y], Condition::Always)
-            .resizable(false)
-            .build(&ui, || {
-                Image::new(TextureId::from(pattern_table_textures[0] as usize), [pattern_table_size, pattern_table_size]).build(&ui);
-            });
-
-        let pattern_table_window_height = bar_height + pattern_table_size + border_size + margin;
-
-        Window::new(im_str!("Pattern table one"))
-            .position([pattern_table_x, output_y + pattern_table_window_height], Condition::Always)
-            .resizable(false)
-            .build(&ui, || {
-                Image::new(TextureId::from(pattern_table_textures[1] as usize), [pattern_table_size, pattern_table_size]).build(&ui);
-            });
-
-        pattern_table_padding.pop(&ui);
-
-        Window::new(im_str!("Palettes"))
-            .position([pattern_table_x, output_y + pattern_table_window_height*2.0], Condition::Always)
-            .size([pattern_table_size, WINDOW_HEIGHT as f32 - pattern_table_window_height*2.0 - margin*2.0], Condition::Always)
-            .resizable(false)
-            .build(&ui, || {
-                imgui::Slider::new(im_str!("Palette")).range(RangeInclusive::new(0, 7))
-                    .build(&ui, &mut palette);
-            });
-
-        border.pop(&ui);
-
-        // Render ImGui
-        imgui_sdl2.prepare_render(&ui, &window);
-        renderer.render(ui);
         window.gl_swap_window();
     }
 
@@ -340,4 +212,180 @@ fn on_emulation_cycle(cpu: &mut Cpu, ppu: &mut Ppu, memory: &mut Memory)
             cpu.on_non_maskable_interrupt(ppu, memory);
         }
     }
+}
+
+fn draw_gui
+(
+    // Emulation
+    cpu: &mut Cpu,
+    ppu: &mut Ppu,
+    memory: &mut Memory,
+
+    // Input and output
+    output_texture: u32,
+    pattern_table_textures: &[u32; 2],
+    palette: &mut u8,
+
+    // Rendering
+    imgui: &mut Context,
+    imgui_sdl2: &mut ImguiSdl2,
+    renderer: &Renderer,
+    window: &sdl2::video::Window,
+    event_pump: &mut EventPump
+)
+{
+    // Prepare ImGui
+    imgui_sdl2.prepare_frame(imgui.io_mut(), window, &event_pump.mouse_state());
+
+    // Clear screen and update textures
+    unsafe
+    {
+        gl::ClearColor(0.0, 0.0, 0.0, 1.0);
+        gl::Clear(gl::COLOR_BUFFER_BIT);
+
+        gl::BindTexture(gl::TEXTURE_2D, output_texture);
+        gl::TexSubImage2D(gl::TEXTURE_2D, 0, 0, 0, SCREEN_WIDTH as i32, SCREEN_HEIGHT as i32, gl::RGB, gl::UNSIGNED_BYTE, ppu.output.as_ptr() as *const c_void);
+
+        for i in 0..pattern_table_textures.len()
+        {
+            gl::BindTexture(gl::TEXTURE_2D, pattern_table_textures[i]);
+            gl::TexSubImage2D(gl::TEXTURE_2D, 0, 0, 0, PATTERN_TABLE_SIZE as i32, PATTERN_TABLE_SIZE as i32, gl::RGB, gl::UNSIGNED_BYTE, ppu.get_pattern_table(memory, i as u8, *palette).as_ptr() as *const c_void);
+        }
+    }
+
+    // Begin ImGui
+    let ui = imgui.frame();
+    let border_size = 1.0;
+    let border = ui.push_style_var(StyleVar::WindowBorderSize(border_size));
+    let margin = 5.0;
+    let bar_height = 18.0;
+
+    // Output window
+    let padding = ui.push_style_var(StyleVar::WindowPadding([0.0, 0.0]));
+    let output_x = margin;
+    let output_y = margin;
+    let output_width = (SCREEN_WIDTH*SCREEN_SCALE) as f32;
+    let output_height = (SCREEN_HEIGHT*SCREEN_SCALE) as f32;
+
+    Window::new(im_str!("Output"))
+        .position([output_x, output_y], Condition::Always)
+        .resizable(false)
+        .build(&ui, || {
+            Image::new(TextureId::from(output_texture as usize), [output_width, output_height]).build(&ui);
+        });
+
+    padding.pop(&ui);
+
+    // Registers
+    let cpu_section_width = 700;
+    let registers_x = output_x + output_width + border_size + margin - 1.0;
+    let registers_width = cpu_section_width as f32 - registers_x - margin;
+    let registers_height = 140.0;
+
+    Window::new(im_str!("Registers"))
+        .position([registers_x, output_y], Condition::Always)
+        .size([registers_width, registers_height], Condition::Always)
+        .resizable(false)
+        .build(&ui, || {
+            ui.text(format!("Flags: {:#04b}", cpu.flags.bits()));
+            ui.text(format!("PC: {:#06x}", cpu.pc));
+            ui.text(format!("SP: {:#04x}", cpu.sp));
+            ui.text(format!("A: {:#04x}", cpu.a));
+            ui.text(format!("X: {:#04x}", cpu.x));
+            ui.text(format!("Y: {:#04x}", cpu.y));
+        });
+
+    // Stack
+    Window::new(im_str!("Stack"))
+        .position([output_x, output_y + bar_height + output_height + border_size + margin], Condition::Always)
+        .size([output_width + margin + registers_width, 170.0], Condition::Always)
+        .resizable(false)
+        .build(&ui, || {
+
+            // 256 bytes in the stack, 16x16 --> 32x8
+            let rows: u16 = 8;
+            for row in 0..rows
+            {
+                let mut bytes = [0u8; 32];
+
+                for i in 0..bytes.len()
+                {
+                    bytes[i] = memory.read_byte(ppu, row * rows as u16 + i as u16, true);
+                }
+
+                ui.text_colored([0.3, 0.3, 0.3, 1.0], format!(
+                    "{:#04x} {:#04x} {:#04x} {:#04x} {:#04x} {:#04x} {:#04x} {:#04x} {:#04x} {:#04x} {:#04x} {:#04x} {:#04x} {:#04x} {:#04x} {:#04x} {:#04x}",
+                    bytes[0], bytes[1], bytes[2], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15])
+                );
+            }
+        });
+
+    // Disassembly
+    Window::new(im_str!("Disassembly"))
+        .position([registers_x, output_y + registers_height + margin], Condition::Always)
+        .size([registers_width, output_height + bar_height - registers_height - margin + border_size], Condition::Always)
+        .resizable(false)
+        .build(&ui, || {
+
+            let old_pc = cpu.pc;
+
+            for row in 0..32u16
+            {
+                // The bellow code with affect the program counter *on purpose*
+                let current_pc = cpu.pc;
+
+                // Fetch opcode
+                let opcode = memory.read_byte(ppu, cpu.pc, true);
+                let Instruction(name, _, addressing_mode, _) = &INSTRUCTIONS[opcode as usize];
+                cpu.pc += 1;
+
+                // Fetch operand
+                let operand = cpu.fetch_operand(ppu, memory, addressing_mode, true);
+
+                // Display
+                let colour = if row == 0 { [1.0, 1.0, 1.0, 1.0] } else { [0.3, 0.3, 0.3, 1.0] };
+                ui.text_colored(colour, format!("{:#06x} {} {:#06x}", current_pc, name, operand.data))
+            }
+
+            cpu.pc = old_pc;
+        });
+
+    // Pattern tables
+    let pattern_table_padding = ui.push_style_var(StyleVar::WindowPadding([0.0, 0.0]));
+    let pattern_table_size = (PATTERN_TABLE_SIZE * SCREEN_SCALE) as f32;
+    let pattern_table_x = cpu_section_width as f32;
+
+    Window::new(im_str!("Pattern table zero"))
+        .position([pattern_table_x, output_y], Condition::Always)
+        .resizable(false)
+        .build(&ui, || {
+            Image::new(TextureId::from(pattern_table_textures[0] as usize), [pattern_table_size, pattern_table_size]).build(&ui);
+        });
+
+    let pattern_table_window_height = bar_height + pattern_table_size + border_size + margin;
+
+    Window::new(im_str!("Pattern table one"))
+        .position([pattern_table_x, output_y + pattern_table_window_height], Condition::Always)
+        .resizable(false)
+        .build(&ui, || {
+            Image::new(TextureId::from(pattern_table_textures[1] as usize), [pattern_table_size, pattern_table_size]).build(&ui);
+        });
+
+    pattern_table_padding.pop(&ui);
+
+    // Palette switcher
+    Window::new(im_str!("Palettes"))
+        .position([pattern_table_x, output_y + pattern_table_window_height*2.0], Condition::Always)
+        .size([pattern_table_size, WINDOW_HEIGHT as f32 - pattern_table_window_height*2.0 - margin*2.0], Condition::Always)
+        .resizable(false)
+        .build(&ui, || {
+            imgui::Slider::new(im_str!("Palette")).range(RangeInclusive::new(0, 7))
+                .build(&ui, palette);
+        });
+
+    border.pop(&ui);
+
+    // Render ImGui
+    imgui_sdl2.prepare_render(&ui, &window);
+    renderer.render(ui);
 }
