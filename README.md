@@ -7,6 +7,7 @@ An NES emulator written in Rust, with an inbuilt visual debugger
 ![mario screenshot with debugger](screenshots/mario.png)|![donkey kong screenshot with debugger](screenshots/donkey%20kong.png)|![nestest screenshot with debugger](screenshots/tests.png)
 
 # Building
+You will need to install [SDL2](https://github.com/Rust-SDL2/rust-sdl2) for Rust as per the instructions.
 ```
 git clone https://github.com/lukawarren/nes-emulator-rust.git
 cd nes-emulator-rust
