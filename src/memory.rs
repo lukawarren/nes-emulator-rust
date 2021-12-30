@@ -4,6 +4,7 @@ use std::io::Read;
 use std::ops::BitAnd;
 use bitflags::bitflags;
 
+#[derive(Clone)]
 pub struct Memory
 {
     pub ram: [u8; 2048],
@@ -49,6 +50,7 @@ bitflags!
     struct FlagsTen: u8 {}
 }
 
+#[derive(Clone)]
 #[allow(dead_code)]
 pub struct RomHeader
 {
@@ -130,6 +132,9 @@ impl Memory
 
         // Get header
         let header = RomHeader::from_bytes(&rom_data[0..16].try_into().unwrap());
+
+        // Check it's actually a .nes file
+        assert_eq!(&header.header_string[0..3], "NES".as_bytes());
 
         // Determine mapper type
         if header.get_mapper_number() != 0 {

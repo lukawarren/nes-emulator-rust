@@ -8,6 +8,7 @@ pub const SCREEN_HEIGHT: usize = 240;
 pub const PATTERN_TABLE_SIZE: usize = 128;
 pub const CYCLES_PER_FRAME: usize = (341 / 3) * (262+1);
 
+#[derive(Copy, Clone)]
 pub struct Ppu
 {
     // Registers

@@ -23,6 +23,7 @@ bitflags!
     }
 }
 
+#[derive(Copy, Clone)]
 pub struct Cpu
 {
     pub pc: u16,               // Program counter

@@ -64,6 +64,11 @@ fn main()
     let mut memory = Memory::default();
     let mut cpu = Cpu::from_memory(&mut ppu, &mut memory);
 
+    // Saved states
+    let mut saved_cpu = cpu;
+    let mut saved_ppu = ppu;
+    let mut saved_memory = memory.clone();
+
     // Create OpenGL textures
     let mut output_texture: u32 = 0;
     let mut pattern_table_textures = [0u32; 2];
@@ -126,6 +131,11 @@ fn main()
             &mut cpu,
             &mut ppu,
             &mut memory,
+
+            // Saved states
+            &mut saved_cpu,
+            &mut saved_ppu,
+            &mut saved_memory,
 
             // Input and output
             output_texture,
@@ -221,6 +231,11 @@ fn draw_gui
     ppu: &mut Ppu,
     memory: &mut Memory,
 
+    // Save states
+    saved_cpu: &mut Cpu,
+    saved_ppu: &mut Ppu,
+    saved_memory: &mut Memory,
+
     // Input and output
     output_texture: u32,
     pattern_table_textures: &[u32; 2],
@@ -270,7 +285,8 @@ fn draw_gui
     Window::new(im_str!("Output"))
         .position([output_x, output_y], Condition::Always)
         .resizable(false)
-        .build(&ui, || {
+        .build(&ui, ||
+        {
             Image::new(TextureId::from(output_texture as usize), [output_width, output_height]).build(&ui);
         });
 
@@ -286,7 +302,8 @@ fn draw_gui
         .position([registers_x, output_y], Condition::Always)
         .size([registers_width, registers_height], Condition::Always)
         .resizable(false)
-        .build(&ui, || {
+        .build(&ui, ||
+        {
             ui.text(format!("Flags: {:#04b}", cpu.flags.bits()));
             ui.text(format!("PC: {:#06x}", cpu.pc));
             ui.text(format!("SP: {:#04x}", cpu.sp));
@@ -300,7 +317,8 @@ fn draw_gui
         .position([output_x, output_y + bar_height + output_height + border_size + margin], Condition::Always)
         .size([output_width + margin + registers_width, 170.0], Condition::Always)
         .resizable(false)
-        .build(&ui, || {
+        .build(&ui, ||
+        {
 
             // 256 bytes in the stack, 16x16 --> 32x8
             let rows: u16 = 8;
@@ -325,7 +343,8 @@ fn draw_gui
         .position([registers_x, output_y + registers_height + margin], Condition::Always)
         .size([registers_width, output_height + bar_height - registers_height - margin + border_size], Condition::Always)
         .resizable(false)
-        .build(&ui, || {
+        .build(&ui, ||
+        {
 
             let old_pc = cpu.pc;
 
@@ -358,7 +377,8 @@ fn draw_gui
     Window::new(im_str!("Pattern table zero"))
         .position([pattern_table_x, output_y], Condition::Always)
         .resizable(false)
-        .build(&ui, || {
+        .build(&ui, ||
+        {
             Image::new(TextureId::from(pattern_table_textures[0] as usize), [pattern_table_size, pattern_table_size]).build(&ui);
         });
 
@@ -367,20 +387,36 @@ fn draw_gui
     Window::new(im_str!("Pattern table one"))
         .position([pattern_table_x, output_y + pattern_table_window_height], Condition::Always)
         .resizable(false)
-        .build(&ui, || {
+        .build(&ui, ||
+        {
             Image::new(TextureId::from(pattern_table_textures[1] as usize), [pattern_table_size, pattern_table_size]).build(&ui);
         });
 
     pattern_table_padding.pop(&ui);
 
-    // Palette switcher
-    Window::new(im_str!("Palettes"))
+    // Misc menu
+    Window::new(im_str!("Miscellaneous"))
         .position([pattern_table_x, output_y + pattern_table_window_height*2.0], Condition::Always)
         .size([pattern_table_size, WINDOW_HEIGHT as f32 - pattern_table_window_height*2.0 - margin*2.0], Condition::Always)
         .resizable(false)
-        .build(&ui, || {
+        .build(&ui, ||
+        {
             imgui::Slider::new(im_str!("Palette")).range(RangeInclusive::new(0, 7))
                 .build(&ui, palette);
+
+            ui.button(im_str!("Save emulation state"), [150.0, 20.0]).then(||
+            {
+                *saved_cpu = *cpu;
+                *saved_ppu = *ppu;
+                *saved_memory = memory.clone();
+            });
+
+            ui.button(im_str!("Load emulation state"), [150.0, 20.0]).then(||
+                {
+                *cpu = *saved_cpu;
+                *ppu = *saved_ppu;
+                *memory = saved_memory.clone();
+            });
         });
 
     border.pop(&ui);
