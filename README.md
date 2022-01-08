@@ -27,4 +27,7 @@ As a standalone executable:
 
 # Supported platforms
 The project is built with [OpenGL](https://github.com/glium/glium), [SDL2](https://github.com/Rust-SDL2/rust-sdl2) and [ImGui](https://github.com/michaelfairley/rust-imgui-sdl2), and
-as such it should work on any platform where OpenGL is supported.
+as such it should work on any platform where OpenGL is supported. It has been confirmed to run on:
+* Windows
+* Linux
+* Mac OS
