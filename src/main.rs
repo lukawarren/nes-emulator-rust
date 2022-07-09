@@ -30,6 +30,16 @@ const SCREEN_SCALE: usize = 2;
 
 fn main()
 {
+    // Get std args
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() != 3
+    {
+        println!("Invalid format - must run like so:");
+        println!("./nes-emulator-rust [filename.nes] [speed as int]");
+        std::process::abort();
+    }
+    let speed = args[2].parse::<i32>().ok().expect("speed was an invalid integer");
+
     // Init SDL
     let sdl_context = sdl2::init().unwrap();
     let video = sdl_context.video().unwrap();
@@ -122,7 +132,9 @@ fn main()
         memory.controller[0] |= if event_pump.keyboard_state().is_scancode_pressed(Scancode::Right) { 0x01 } else { 0 };
 
         // Perform emulation
-        on_emulation_cycle(&mut cpu, &mut ppu, &mut memory);
+        for _ in 0..speed {
+            on_emulation_cycle(&mut cpu, &mut ppu, &mut memory);
+        }
 
         // Draw ImGUI stuff
         draw_gui

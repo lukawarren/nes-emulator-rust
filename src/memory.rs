@@ -106,12 +106,6 @@ impl Memory
     {
         // Get std args
         let args: Vec<String> = std::env::args().collect();
-        if args.len() != 2
-        {
-            println!("Invalid format - must run like so:");
-            println!("./nes-emulator-rust [filename.nes]");
-            std::process::abort();
-        }
 
         // Open ROM and get size
         let rom_filename = args[1].clone();
