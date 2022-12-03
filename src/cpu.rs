@@ -218,7 +218,7 @@ impl Cpu
         match addressing_mode
         {
             // First, the addressing modes where this doesn't count...
-            AddressingMode::Implied => ( 0 ),
+            AddressingMode::Implied => 0,
             AddressingMode::Accumulator | AddressingMode::Immediate => { operand_data as u8 }
 
             // and then the rest...
