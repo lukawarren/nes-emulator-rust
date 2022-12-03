@@ -1,8 +1,8 @@
 mod cpu;
 mod memory;
 mod opcodes;
-mod ppu;
 mod palette_table;
+mod ppu;
 
 use cpu::Cpu;
 use memory::Memory;
@@ -15,14 +15,16 @@ use opcodes::INSTRUCTIONS;
 use opcodes::Instruction;
 
 use imgui::{Condition, im_str, Image, StyleVar, TextureId, Window, Context};
+use imgui_opengl_renderer::Renderer;
 use imgui_sdl2::ImguiSdl2;
+
+use sdl2::controller::{GameController, Button};
 use sdl2::keyboard::{Keycode, Scancode};
 use sdl2::event::Event;
-
-use std::os::raw::c_void;
-use std::ops::RangeInclusive;
-use imgui_opengl_renderer::Renderer;
 use sdl2::EventPump;
+
+use std::ops::RangeInclusive;
+use std::os::raw::c_void;
 
 const WINDOW_WIDTH: u32 = 961;
 const WINDOW_HEIGHT: u32 = 684;
@@ -43,6 +45,25 @@ fn main()
     // Init SDL
     let sdl_context = sdl2::init().unwrap();
     let video = sdl_context.video().unwrap();
+
+    // Find detected SDL controllers...
+    let game_controller_subsystem = sdl_context.game_controller().unwrap();
+    let available = game_controller_subsystem
+        .num_joysticks()
+        .map_err(|e| format!("Couldn't enumerate joysticks: {}", e)).unwrap();
+
+    // ...and use all available
+    let mut controllers = Vec::<GameController>::new();
+    for i in 0..available
+    {
+        if game_controller_subsystem.is_game_controller(i)
+        {
+            let result = game_controller_subsystem.open(i);
+            if result.is_ok() {
+                controllers.push(result.unwrap());
+            }
+        }
+    }
 
     // Configure OpenGL
     let gl_attr = video.gl_attr();
@@ -120,16 +141,40 @@ fn main()
             }
         }
 
-        // Set controller
+        // Set (emulated) controller from keyboard
         memory.controller[0] = 0;
-        memory.controller[0] |= if event_pump.keyboard_state().is_scancode_pressed(Scancode::X) { 0x80 } else { 0 };
-        memory.controller[0] |= if event_pump.keyboard_state().is_scancode_pressed(Scancode::Z) { 0x40 } else { 0 };
-        memory.controller[0] |= if event_pump.keyboard_state().is_scancode_pressed(Scancode::A) { 0x20 } else { 0 };
-        memory.controller[0] |= if event_pump.keyboard_state().is_scancode_pressed(Scancode::S) { 0x10 } else { 0 };
-        memory.controller[0] |= if event_pump.keyboard_state().is_scancode_pressed(Scancode::Up) { 0x08 } else { 0 };
-        memory.controller[0] |= if event_pump.keyboard_state().is_scancode_pressed(Scancode::Down) { 0x04 } else { 0 };
-        memory.controller[0] |= if event_pump.keyboard_state().is_scancode_pressed(Scancode::Left) { 0x02 } else { 0 };
+        memory.controller[0] |= if event_pump.keyboard_state().is_scancode_pressed(Scancode::X)     { 0x80 } else { 0 };
+        memory.controller[0] |= if event_pump.keyboard_state().is_scancode_pressed(Scancode::Z)     { 0x40 } else { 0 };
+        memory.controller[0] |= if event_pump.keyboard_state().is_scancode_pressed(Scancode::A)     { 0x20 } else { 0 };
+        memory.controller[0] |= if event_pump.keyboard_state().is_scancode_pressed(Scancode::S)     { 0x10 } else { 0 };
+        memory.controller[0] |= if event_pump.keyboard_state().is_scancode_pressed(Scancode::Up)    { 0x08 } else { 0 };
+        memory.controller[0] |= if event_pump.keyboard_state().is_scancode_pressed(Scancode::Down)  { 0x04 } else { 0 };
+        memory.controller[0] |= if event_pump.keyboard_state().is_scancode_pressed(Scancode::Left)  { 0x02 } else { 0 };
         memory.controller[0] |= if event_pump.keyboard_state().is_scancode_pressed(Scancode::Right) { 0x01 } else { 0 };
+
+        // Apply (physical) controllers to input too
+        for i in 0..controllers.len()
+        {
+            // A button
+            memory.controller[0] |= if controllers[i].button(Button::A)         { 0x80 } else { 0 };
+            memory.controller[0] |= if controllers[i].button(Button::B)         { 0x80 } else { 0 };
+
+            // B button
+            memory.controller[0] |= if controllers[i].button(Button::X)         { 0x40 } else { 0 };
+            memory.controller[0] |= if controllers[i].button(Button::Y)         { 0x40 } else { 0 };
+
+            // Select
+            memory.controller[0] |= if controllers[i].button(Button::Back)      { 0x20 } else { 0 };
+
+            // Start
+            memory.controller[0] |= if controllers[i].button(Button::Start)     { 0x10 } else { 0 };
+
+            // Directions
+            memory.controller[0] |= if controllers[i].button(Button::DPadUp)    { 0x08 } else { 0 };
+            memory.controller[0] |= if controllers[i].button(Button::DPadDown)  { 0x04 } else { 0 };
+            memory.controller[0] |= if controllers[i].button(Button::DPadLeft)  { 0x02 } else { 0 };
+            memory.controller[0] |= if controllers[i].button(Button::DPadRight) { 0x01 } else { 0 };
+        }
 
         // Perform emulation
         for _ in 0..speed {
