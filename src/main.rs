@@ -32,15 +32,18 @@ const SCREEN_SCALE: usize = 2;
 
 fn main()
 {
-    // Get std args
+    // Get std args: filename, [speed]
     let args: Vec<String> = std::env::args().collect();
-    if args.len() != 3
+    if args.len() != 2 && args.len() != 3
     {
         println!("Invalid format - must run like so:");
-        println!("./nes-emulator-rust [filename.nes] [speed as int]");
+        println!("./nes-emulator-rust [filename.nes] [speed as int (optional)]");
         std::process::abort();
     }
-    let speed = args[2].parse::<i32>().ok().expect("speed was an invalid integer");
+    let speed = if args.len() == 3 {
+        args[2].parse::<i32>().ok().expect("speed was an invalid integer")
+    } else { 1 };
+    println!("Running at {}x speed", speed);
 
     // Init SDL
     let sdl_context = sdl2::init().unwrap();
